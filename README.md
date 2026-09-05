@@ -1,4 +1,84 @@
 # hoverboard-firmware-hack-FOC
+
+## Guía de este fork: Optimus-NoPrime
+
+Este fork conserva el firmware FOC de [EFeru](https://github.com/EFeru/hoverboard-firmware-hack-FOC).
+Integra aquí una guía de montaje, programación y diagnóstico inspirada en el
+[README de lucysrausch/hoverboard-firmware-hack](https://github.com/lucysrausch/hoverboard-firmware-hack/blob/master/README.md),
+con atribución a sus autores. **La integración es documental: no mezcla los dos firmwares.**
+Las secciones originales de FOC se mantienen más abajo.
+
+### Papel dentro del robot
+
+Cada placa de hoverboard controla dos motores de tracción. El robot utiliza dos
+placas para cuatro ruedas. Un micro independiente traduce CAN a UART; este fork
+no implementa ese puente. Los cuatro motores de dirección usan sus propios Nano,
+L298N y AS5048B y no se controlan desde este firmware.
+
+### Antes de cablear
+
+Identifica la placa y el microcontrolador y consulta el [pinout](docs/pictures/mainboard_pinout.png)
+y el [esquema](docs/20150722_hoverboard_sch.pdf). Los conectores de las antiguas
+placas laterales incluyen alimentación de 12/15 V: no confundirla con señales lógicas.
+Consulta también la [compatibilidad del firmware FOC](https://github.com/EFeru/hoverboard-firmware-hack-FOC/wiki/Firmware-Compatibility).
+
+### Compilar para comunicación UART
+
+Desde la raíz de **este submódulo**, con PlatformIO instalado:
+
+```sh
+pio run -e VARIANT_USART
+```
+
+Este entorno existe en [platformio.ini](platformio.ini). Revisa
+[Inc/config.h](Inc/config.h) para elegir modo de control y límites eléctricos.
+El protocolo UART de referencia está en [Arduino/hoverserial](Arduino/hoverserial).
+El puente CAN debe implementar ese formato, su checksum y la recepción de telemetría;
+no basta con enviar un número en texto. No copiar opciones de compilación del
+firmware original sin comprobar que existen en esta variante FOC.
+
+### Programación por SWD
+
+La guía original explica el uso de ST-Link sobre GND, SWDIO y SWCLK.
+**No alimentar la placa desde la salida de 3,3 V del programador.**
+Mantén la alimentación propia de la placa y su circuito de encendido durante la
+programación, según el modelo. Una protección de lectura puede impedir el acceso;
+desbloquearla puede borrar el firmware existente. Consulta la guía original y la
+wiki FOC antes de aplicar comandos de desbloqueo.
+
+Para compilar y cargar con ST-Link usando la configuración de este fork:
+
+```sh
+pio run -e VARIANT_USART -t upload
+```
+
+Este comando escribe la placa conectada: ejecutarlo únicamente después de verificar
+modelo, conexiones y variante. No se ha flasheado ningún hardware desde este proyecto.
+
+### Diagnóstico inicial
+
+- Si no se puede programar, comprueba alimentación, encendido, masa y conexiones SWD.
+- Si el motor gira irregularmente, revisa el conexionado de fases y sensores Hall;
+  los colores no garantizan el mismo orden en todas las placas.
+- Mantén cortas las conexiones de señal; el cableado del motor puede introducir interferencias.
+- Para FOC y comunicación serie utiliza además la
+  [guía de diagnóstico de EFeru](https://github.com/EFeru/hoverboard-firmware-hack-FOC/wiki#troubleshooting).
+
+### Fuentes y diferencias entre proyectos
+
+- [README original y proyectos de referencia](https://github.com/lucysrausch/hoverboard-firmware-hack):
+  contexto de reutilización, SWD y diagnóstico de hardware.
+- [Documentación FOC](https://github.com/EFeru/hoverboard-firmware-hack-FOC/wiki):
+  autoridad para variantes, placas compatibles y control de este fork.
+- No se trasladan como reglas universales los umbrales de tensión/corriente ni
+  las secuencias de escritura directa de registros del README antiguo: dependen
+  del hardware y de la herramienta. Tampoco se sustituyen los modos FOC por los
+  modos disponibles en el firmware original.
+
+---
+
+## Documentación original de FOC
+
 [![Build status](https://github.com/EFeru/hoverboard-firmware-hack-FOC/actions/workflows/build_on_commit.yml/badge.svg)](https://github.com/EFeru/hoverboard-firmware-hack-FOC/actions/workflows/build_on_commit.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![paypal](https://www.paypalobjects.com/en_US/i/btn/btn_donate_SM.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=CU2SWN2XV9SCY&currency_code=EUR&source=url)
