@@ -15,54 +15,255 @@ placas para cuatro ruedas. Un micro independiente traduce CAN a UART; este fork
 no implementa ese puente. Los cuatro motores de dirección usan sus propios Nano,
 L298N y AS5048B y no se controlan desde este firmware.
 
-### Antes de cablear
+### Índice de la guía integrada
 
-Identifica la placa y el microcontrolador y consulta el [pinout](docs/pictures/mainboard_pinout.png)
-y el [esquema](docs/20150722_hoverboard_sch.pdf). Los conectores de las antiguas
-placas laterales incluyen alimentación de 12/15 V: no confundirla con señales lógicas.
-Consulta también la [compatibilidad del firmware FOC](https://github.com/EFeru/hoverboard-firmware-hack-FOC/wiki/Firmware-Compatibility).
+- [Build / compilación](#build--compilación)
+- [Hardware](#hardware-del-hoverboard)
+- [Configuración UART para Optimus-NoPrime](#configuración-uart-para-optimus-noprime)
+- [Flashing / programación](#flashing--programación)
+- [Desbloqueo del microcontrolador](#desbloqueo-del-microcontrolador)
+- [Troubleshooting / diagnóstico](#troubleshooting--diagnóstico)
+- [Ejemplos y proyectos relacionados](#ejemplos-y-proyectos-relacionados)
 
-### Compilar para comunicación UART
+### Build / compilación
 
-Desde la raíz de **este submódulo**, con PlatformIO instalado:
+Este fork ofrece dos formas de compilar. Para Optimus-NoPrime se recomienda
+PlatformIO porque fija la placa, el framework, las opciones de enlace y la variante
+en un único comando reproducible.
+
+#### Opción recomendada: PlatformIO
+
+Instala [PlatformIO Core](https://docs.platformio.org/en/latest/core/installation/index.html)
+o la extensión de PlatformIO para Visual Studio Code. Desde la raíz del firmware:
 
 ```sh
 pio run -e VARIANT_USART
 ```
 
-Este entorno existe en [platformio.ini](platformio.ini). Revisa
-[Inc/config.h](Inc/config.h) para elegir modo de control y límites eléctricos.
-El protocolo UART de referencia está en [Arduino/hoverserial](Arduino/hoverserial).
-El puente CAN debe implementar ese formato, su checksum y la recepción de telemetría;
-no basta con enviar un número en texto. No copiar opciones de compilación del
-firmware original sin comprobar que existen en esta variante FOC.
+El resultado se genera dentro de `.pio/build/VARIANT_USART/`. Para compilar otra
+variante, sustituye `VARIANT_USART` por uno de los entornos declarados en
+[platformio.ini](platformio.ini), por ejemplo `VARIANT_ADC`, `VARIANT_PWM` o
+`VARIANT_NUNCHUK`.
 
-### Programación por SWD
+Antes de compilar, revisa en [Inc/config.h](Inc/config.h):
 
-La guía original explica el uso de ST-Link sobre GND, SWDIO y SWCLK.
-**No alimentar la placa desde la salida de 3,3 V del programador.**
-Mantén la alimentación propia de la placa y su circuito de encendido durante la
-programación, según el modelo. Una protección de lectura puede impedir el acceso;
-desbloquearla puede borrar el firmware existente. Consulta la guía original y la
-wiki FOC antes de aplicar comandos de desbloqueo.
+- `CTRL_TYP_SEL`: conmutación, sinusoidal o FOC.
+- `CTRL_MOD_REQ`: tensión, velocidad o par, según el tipo de control.
+- Límites de corriente, velocidad, tensión y temperatura.
+- Entrada seleccionada y UART utilizada. Dos funciones incompatibles no pueden
+  compartir el mismo conector.
 
-Para compilar y cargar con ST-Link usando la configuración de este fork:
+#### Opción heredada: Makefile y GNU Arm Embedded
+
+El flujo procedente del proyecto original también está disponible:
+
+```sh
+make
+```
+
+Necesita GNU Make y el toolchain `arm-none-eabi-gcc`. La variable `PREFIX` del
+[Makefile](Makefile) debe apuntar al prefijo correcto si las herramientas no están
+en `PATH`. El binario se genera como `build/hover.bin`. Este método toma la variante
+definida en `Inc/config.h`; no se debe definir una variante distinta a la vez desde
+varios sitios. Para limpiar sus artefactos:
+
+```sh
+make clean
+```
+
+Las instrucciones históricas citaban GCC Arm Embedded 7. Hoy conviene usar primero
+la versión que valida el CI de este fork o la indicada por la documentación FOC,
+porque distintas versiones del compilador pueden cambiar el resultado.
+
+### Hardware del hoverboard
+
+![Pinout de la placa principal](docs/pictures/mainboard_pinout.png)
+
+La placa principal habitual incorpora un STM32F103RCT6; algunas revisiones usan un
+GD32F103RCT6. Antes de programar, confirma el micro y que la placa aparece en la
+[tabla de compatibilidad FOC](https://github.com/EFeru/hoverboard-firmware-hack-FOC/wiki/Firmware-Compatibility).
+Las placas partidas o basadas en AT32 requieren proyectos o procedimientos distintos.
+
+Las dos tomas de cuatro hilos que originalmente iban a las placas laterales exponen
+masa, alimentación de aproximadamente 12/15 V y las señales de USART2 o USART3.
+Según la configuración del firmware, esas señales pueden utilizarse para UART,
+PWM, PPM, iBUS, ADC o I2C. No todas las funciones pueden coexistir en los mismos pines.
+
+Puntos eléctricos importantes:
+
+- USART3, en el cable derecho/corto, admite señales lógicas de 5 V y es la opción
+  recomendada cuando el emisor es un Arduino de 5 V.
+- USART2, en el cable izquierdo/largo, no admite 5 V. Utiliza lógica de 3,3 V o
+  adaptación de nivel.
+- El hilo de alimentación de 12/15 V no es una salida lógica ni debe conectarse
+  directamente a un microcontrolador.
+- Todas las señales necesitan una masa común. Alimenta cada circuito con un
+  regulador adecuado y comprueba su esquema antes de unirlo a la placa.
+- El rango de las entradas ADC es 0–3,3 V. La adaptación descrita para GameTrak en
+  el proyecto original solo corresponde a esa variante y no debe aplicarse al puente UART.
+
+El esquema reconstruido está incluido en
+[docs/20150722_hoverboard_sch.pdf](docs/20150722_hoverboard_sch.pdf). Cerca del
+microcontrolador hay pads de depuración con GND, 3V3, SWDIO y SWCLK. El pin 3V3 sirve
+como referencia de nivel; no debe usarse para alimentar la placa desde el ST-Link.
+
+### Configuración UART para Optimus-NoPrime
+
+La variante `VARIANT_USART` incluida actualmente habilita control y feedback por
+USART2 a 115200 bit/s. Como USART2 no tolera 5 V, el futuro puente CAN/UART debe
+trabajar a 3,3 V o incorporar adaptación de nivel. Si se decide emplear USART3,
+hay que cambiar de forma coherente las macros `CONTROL_SERIAL_USARTx` y
+`FEEDBACK_SERIAL_USARTx` en [Inc/config.h](Inc/config.h).
+
+El protocolo binario de referencia está en
+[Arduino/hoverserial/hoverserial.ino](Arduino/hoverserial/hoverserial.ino). Utiliza
+una palabra inicial `0xABCD`, dos consignas de 16 bits y checksum; el feedback tiene
+su propia estructura y checksum. El puente CAN debe serializar exactamente esas
+estructuras y aplicar timeout. Enviar números como texto por UART no funciona.
+
+No habilites `DEBUG_SERIAL_USART2` sobre la misma UART que `CONTROL_SERIAL_USART2`
+y `FEEDBACK_SERIAL_USART2`: `config.h` trata esas combinaciones como incompatibles.
+
+### Flashing / programación
+
+#### Conexión del ST-Link
+
+Con la potencia de los motores desconectada y después de identificar los pads,
+conecta únicamente:
+
+| ST-Link | Placa hoverboard |
+|---|---|
+| GND | GND |
+| SWDIO | SWDIO |
+| SWCLK | SWCLK |
+| RESET | RESET, opcional según placa y herramienta |
+
+**No conectes el 3V3 del programador para alimentar la placa.** La placa debe usar
+su propia alimentación. El proyecto original indica que muchas placas necesitan
+mantener pulsado el botón de encendido o puentear temporalmente sus contactos para
+que el circuito de enclavamiento no corte la alimentación durante el flasheo.
+El voltaje necesario depende de la placa y de la batería: verifica el esquema y la
+documentación FOC antes de aplicar la afirmación histórica de “más de 36 V”.
+
+#### Flashear con PlatformIO
+
+Con un ST-Link reconocido por el sistema:
 
 ```sh
 pio run -e VARIANT_USART -t upload
 ```
 
-Este comando escribe la placa conectada: ejecutarlo únicamente después de verificar
-modelo, conexiones y variante. No se ha flasheado ningún hardware desde este proyecto.
+PlatformIO compila y escribe usando `upload_protocol = stlink`. Revisa primero el
+entorno seleccionado: este comando modifica la memoria flash del controlador conectado.
 
-### Diagnóstico inicial
+#### Flashear el binario generado por Make
 
-- Si no se puede programar, comprueba alimentación, encendido, masa y conexiones SWD.
-- Si el motor gira irregularmente, revisa el conexionado de fases y sensores Hall;
-  los colores no garantizan el mismo orden en todas las placas.
-- Mantén cortas las conexiones de señal; el cableado del motor puede introducir interferencias.
-- Para FOC y comunicación serie utiliza además la
-  [guía de diagnóstico de EFeru](https://github.com/EFeru/hoverboard-firmware-hack-FOC/wiki#troubleshooting).
+Con la utilidad de [stlink](https://github.com/stlink-org/stlink):
+
+```sh
+st-flash --reset write build/hover.bin 0x08000000
+```
+
+O con OpenOCD y un ST-Link V2:
+
+```sh
+openocd -f interface/stlink-v2.cfg -f target/stm32f1x.cfg \
+  -c init -c "reset halt" \
+  -c "flash write_image erase build/hover.bin 0x08000000" \
+  -c "reset run" -c shutdown
+```
+
+El nombre del fichero y la interfaz pueden variar según sistema, versión del ST-Link
+y método de compilación. Comprueba siempre que el binario corresponde a la variante
+y placa conectadas.
+
+### Desbloqueo del microcontrolador
+
+Una placa que nunca se ha reprogramado puede tener protección de lectura activa.
+Compruébalo primero con la herramienta del ST-Link. El procedimiento estándar
+documentado por el proyecto original para STM32F1 es:
+
+```sh
+openocd -f interface/stlink-v2.cfg -f target/stm32f1x.cfg \
+  -c init -c "reset halt" -c "stm32f1x unlock 0" -c shutdown
+```
+
+Desbloquear normalmente provoca un borrado masivo: se pierde el firmware de fábrica
+y cualquier calibración almacenada. Los procedimientos alternativos que escriben
+directamente registros flash son específicos del STM32F1 y no deben ejecutarse en
+un GD32, AT32 o una revisión desconocida. Si el desbloqueo estándar falla, consulta
+primero [How to Unlock MCU Flash](https://github.com/EFeru/hoverboard-firmware-hack-FOC/wiki/How-to-Unlock-MCU-Flash)
+y la [secuencia histórica completa](https://github.com/lucysrausch/hoverboard-firmware-hack/blob/master/README.md#flashing).
+
+En Windows también se puede usar STM32 ST-LINK Utility o STM32CubeProgrammer. La
+opción equivalente suele aparecer como eliminación de Read Out Protection; revisa
+el dispositivo detectado antes de aceptarla.
+
+### Troubleshooting / diagnóstico
+
+#### El programador no detecta el micro
+
+- Comprueba masa común, SWDIO/SWCLK, continuidad y que no estén intercambiados.
+- Mantén alimentada y encendida la placa durante toda la operación.
+- Reduce la frecuencia SWD si el cable es largo o el contacto es deficiente.
+- Verifica que el target y el fichero de OpenOCD coinciden con el micro real.
+- Si hay protección de lectura, sigue el apartado anterior y asume que se borrará.
+
+#### Compila, flashea, pero la placa no arranca
+
+- Confirma que se compiló la variante deseada y revisa `Inc/config.h`.
+- Comprueba el botón/circuito de power latch; un apagado inmediato puede parecer
+  un fallo de firmware.
+- Interpreta los pitidos y errores con la
+  [página de diagnóstico FOC](https://github.com/EFeru/hoverboard-firmware-hack-FOC/wiki/Diagnostics).
+- Usa la salida debug solo en una UART que no esté dedicada al control o feedback.
+
+#### El motor vibra, hace ruido o no gira suavemente
+
+Revisa las tres fases y los sensores Hall. Unir colores iguales suele funcionar,
+pero no garantiza el orden eléctrico en todas las marcas. Una combinación incorrecta
+puede causar tirones, corriente elevada o giro deficiente. No pruebes combinaciones
+con la rueda cargada: limita corriente y velocidad y valida la correspondencia según
+la guía FOC antes de aumentar consignas.
+
+#### UART sin comandos o feedback
+
+- Confirma 115200, formato binario, byte order, palabra inicial y checksum.
+- Cruza TX con RX y comparte GND.
+- Comprueba que el puerto activado en `config.h` coincide con el cable físico.
+- Respeta los niveles: USART2 a 3,3 V; USART3 es la alternativa tolerante a 5 V.
+- No mezcles debug con control/feedback sobre la misma UART.
+
+#### Fallos intermitentes al acelerar
+
+El cableado del motor genera interferencias que afectan especialmente a señales
+largas, I2C y PPM. Mantén cables de señal cortos y separados de las fases, usa pares
+con masa o cable apantallado cuando proceda, añade ferritas y desacoplo, y verifica
+pull-ups I2C. Errores de entrada pueden provocar cambios bruscos de consigna y hacer
+actuar la protección de la batería.
+
+Para variantes analógicas, el proyecto original recomienda pull-down próximos a
+las entradas para que un cable desconectado no quede flotante. El valor y la conexión
+deben calcularse para el circuito concreto; la referencia histórica era de unos
+100 kΩ hacia masa con potenciómetros alimentados a 3,3 V.
+
+### Ejemplos y proyectos relacionados
+
+- [Charla “Howto: Moving Objects”](https://media.ccc.de/v/gpn18-95-howto-moving-objects):
+  introducción al reaprovechamiento de hardware de hoverboard.
+- [Guía de construcción TranspOtter](https://github.com/lucysrausch/hoverboard-firmware-hack/wiki/Build-Instruction:-TranspOtter):
+  chasis, electrónica, montaje, toolchain y programación del proyecto original.
+- [Ejemplo UART incluido](Arduino/hoverserial/hoverserial.ino): estructuras de
+  comandos y feedback compatibles con este firmware FOC.
+- [Control UART bidireccional](https://github.com/RoboDurden/hoverboard-firmware-hack):
+  otra referencia histórica con ejemplo Arduino.
+- [Firmware para placas AT32F403RCT6](https://github.com/cloidnerux/hoverboard-firmware-hack).
+- [Firmware para placas partidas](https://github.com/flo199213/Hoverboard-Firmware-Hack-Gen2).
+- [Placas de interconexión](https://github.com/Jana-Marie/hoverboard-breakout).
+- [Silla de ruedas](https://github.com/Lahorde/steer_speed_ctrl),
+  [TranspOtterNG](https://github.com/Jan--Henrik/transpOtterNG) y
+  [BiPropellant](https://github.com/bipropellant): proyectos derivados citados
+  por las comunidades original y FOC.
 
 ### Fuentes y diferencias entre proyectos
 
