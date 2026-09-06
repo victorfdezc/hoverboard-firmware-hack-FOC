@@ -124,6 +124,83 @@ estructuras y aplicar timeout. Enviar números como texto por UART no funciona.
 No habilites `DEBUG_SERIAL_USART2` sobre la misma UART que `CONTROL_SERIAL_USART2`
 y `FEEDBACK_SERIAL_USART2`: `config.h` trata esas combinaciones como incompatibles.
 
+### Variant USART Firmware
+This variant can be used to control the board from another board(e.g. Arduino, ESP32, ESP8266,RASPBERRY PI) or a computer via a serial protocol.<br />
+The example [Arduino sketch](https://github.com/EmanuelFeru/hoverboard-firmware-hack-FOC/blob/master/Arduino/hoverserial/hoverserial.ino) will send commands and process the feedback.<br />
+
+You can also test this variant with following [Web Tool](https://github.com/Candas1/Hoverboard-Web-Serial-Control), it let's you control the board and trace feedback values.<br>
+This [Python code](https://github.com/kosni68/HoverSerial) inspired by the code shared in this [issue](https://github.com/EmanuelFeru/hoverboard-firmware-hack-FOC/issues/157) can also be used to control the firmware.
+
+#### Configuration/Parameters
+Voltage [Control Mode](https://github.com/EFeru/hoverboard-firmware-hack-FOC#foc-firmware) is used by default.<br>
+Use CONTROL_SERIAL_USART2 and FEEDBACK_SERIAL_USART2 for left sensor cable(default).<br> CONTROL_SERIAL_USART3 and FEEDBACK_SERIAL_USART3 for the right sensor cable(5v tolerant).<br> 
+
+SIDEBOARD_SERIAL_USART2 or SIDEBOARD_SERIAL_USART3 parameters can be used instead of CONTROL_SERIAL_USART2 or CONTROL_SERIAL_USART3 to enable a different [protocol](https://github.com/EFeru/hoverboard-firmware-hack-FOC/issues/143) implemented on the [sideboard firmware](https://github.com/EFeru/hoverboard-sideboard-hack-GD). It can also be used with the [Web tool](https://github.com/Candas1/Hoverboard-Web-Serial-Control#protocol---hovercar) for testing the different control modes/types.<br>
+You can adjust USART2_BAUD or USART3_BAUD parameters if you need different baud speed.
+
+Please also check the [parameters](https://github.com/EFeru/hoverboard-firmware-hack-FOC/wiki/Parameters) that are common to all the variants.
+
+#### Wiring:
+* Connect blue wire to RX, green wire to TX and black wire to GND of Arduino on left sensor cable(long one
+* Only USART3(right sensor cable) is 5v tolerant
+
+⚠️ On some boards, the black wire is 15v !!! Check with a multi-meter to make sure 15V and ground are not swapped<br>
+⚠️ Red wire from sensor cable delivers 15v !!!
+
+#### Usart configuration:
+By default, USART is configured with 115200 baud(parameter USART2_BAUD or USART3_BAUD), 8 data bits, no parity, one stop bit.<br>
+Prefer hardware serial on Arduino if possible.
+
+#### Input Command Structure:
+Commands are send as binary frames with following structure:<br />
+- Start frame(unsigned int16) : 0xABCD
+- Steer(signed int16) : Steer input or Left input with [tank steering](https://github.com/EFeru/hoverboard-firmware-hack-FOC/wiki/Parameters#-tank-steering)[-1000 - 1000]
+- Speed(signed int16) : Speed input or Right input with [tank steering](https://github.com/EFeru/hoverboard-firmware-hack-FOC/wiki/Parameters#-tank-steering)[-1000 - 1000]
+- Checksum(unsigned int16) : XOR checksum
+
+The least significant byte comes first (little endian).<br>
+
+#### Error rejection
+
+The FOC firmware will discard frames if:
+- Command length is not correct
+- Start frame is not correct
+- Checksum is not correct
+- 1 character inactivity on RX line while receiving the frame ([Idle Line Detection](https://github.com/1847123212/STM32_USART_DMA_RX#about-usart))
+
+A timeout will be triggered if no correct frame is received during the time specified with parameter SERIAL_TIMEOUT in config.h (160ms by default).<br />
+
+#### Calibration:
+[Calibration](https://github.com/EFeru/hoverboard-firmware-hack-FOC/wiki/Input-Calibration) is not required with USART control, but can be done if you use an input devices(e.g. Joystick or Throttle handle) on the Arduino and are not taking care of calibrating center value and min/max range there.
+
+
+#### Feedback:
+Following feedback is sent every 10ms:
+- Start frame(unsigned int16) : 0xABCD
+- Cmd1(signed int16) : Steer or Brake(hovercar) after normalizing and mixing
+- Cmd2(signed int16) : Speed or Throttle(hovercar) after normalizing and mixing
+- SpeedR(signed int16) : Measured right wheel speed in RPM
+- SpeedL(signed int16) : Measured left wheel speed in RPM
+- Battery Voltage(signed int16) : Calibrated Battery Voltage *100
+- Temperature(signed int16) : Temperature in °C *10
+- Led(unsigned int16) : Used to control the leds on the sideboard
+- Checksum(unsigned int16) : XOR checksum
+
+The least significant byte comes first (little endian).
+
+[This](https://github.com/alex-makarov/hoverboard-firmware-hack-FOC/commits/master) fork also has hall ticks as feedback, [this](https://github.com/Candas1/hoverboard-firmware-hack-FOC/tree/Current-Feedback) one has the total current.
+
+#### Troubleshooting:
+
+If the board is [beeping](https://github.com/EmanuelFeru/hoverboard-firmware-hack-FOC/wiki/Diagnostics)
+* Make sure the baud rate is 115200
+* Make sure you are using the sensor cable(left=CONTROL_SERIAL_USART2 or right=CONTROL_SERIAL_USART3) selected in config.h
+* Assuming RX or/and TX can be defective on your mainboard(port is defective on the MCU, 101 smd resistor is missing or has too high resistance), you can switch to other sensor cable in config.h 
+* On some boards the wire colors might differ, try switching blue and green wires
+* Your Arduino TX/RX might not be working, you can verify that by trying with and FTDI and the Web tool to confirm the mainboard/firmware is not the issue
+* You might have to reduce the baud rate if you use software serial on the Arduino
+* If you have added capacitors for PWM/PPM, remove it
+
 ### Flashing / programación
 
 #### Conexión del ST-Link
