@@ -13,7 +13,7 @@ Las secciones originales de FOC se mantienen más abajo.
 Cada placa de hoverboard controla dos motores de tracción. El robot utiliza dos
 placas para cuatro ruedas. Un micro independiente traduce CAN a UART; este fork
 no implementa ese puente. Los cuatro motores de dirección usan sus propios Nano,
-L298N y AS5048B y no se controlan desde este firmware.
+L298N y AS5047P por SPI y no se controlan desde este firmware.
 
 ### Índice de la guía integrada
 
