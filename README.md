@@ -107,6 +107,9 @@ El esquema reconstruido está incluido en
 microcontrolador hay pads de depuración con GND, 3V3, SWDIO y SWCLK. El pin 3V3 sirve
 como referencia de nivel; no debe usarse para alimentar la placa desde el ST-Link.
 
+Se adjunta el Pinout de la placa de color verde para mejor comprensión:
+![Pinout de la placa de color verde](docs/pictures/green_hoverboard_controller.jpeg)
+
 ### Configuración UART para Optimus-NoPrime
 
 La variante `VARIANT_USART` incluida actualmente habilita control y feedback por
